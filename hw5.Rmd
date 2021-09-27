@@ -1,0 +1,139 @@
+---
+title: "DATA 607 - Coding Assignment 5"
+author: "Peter Phung"
+output: html_document
+---
+
+### Introduction
+We are given a table of statistics for hospitalizations in Israel for COVID-19. The observations for the data are split by age and whether or not the population has been vaccinated or not vaccinated. The data is presented below.
+
+```{r hospitalizaions data, echo=FALSE}
+knitr::include_graphics("/home/peter/DATA 607/HW5/hospitalizations.png")
+```
+
+For this data, we are to answer the following questions:
+1. Do you have enough information to calculate the total population? What does this total population represent?
+2. Calculate the Efficacy vs. Disease; Explain your results.
+3. From your calculation of efficacy vs. disease, are you able to compare the rate of severe cases in unvaccinated individuals to that in vaccinated individuals?
+
+### Importing of the .csv file
+[Cloudconvert](https://cloudconvert.com/xlsx-to-csv) was used to convert the original .xlsx file into a .csv file. This .csv file was then uploaded onto a Github repo. The following lines of code import that .csv file into the workspace.
+
+```{r importing data, message = FALSE}
+library(tidyr)
+library(tidyverse)
+
+url <- 'https://raw.githubusercontent.com/peterphung2043/DATA-607---Coding-Assignment-5/main/israeli_vaccination_data_analysis_start.csv'
+
+raw_vaccination_data <- read.csv(url, nrows = 5, na.strings = c("", " ", "NA"), stringsAsFactors = FALSE)[2:5,1:5]
+
+knitr::kable(raw_vaccination_data)
+```
+
+### Tidying and transforming the data
+
+The column names in the dataframe above do not make any sense, so they were changed for readability. 
+
+```{r tidying part 1}
+names(raw_vaccination_data) <- c("Age", "Not_vax", "Fully_vax", "Severe_cases_not", "Severe_cases_fully")
+knitr::kable(raw_vaccination_data)
+```
+
+A new variable was added to the dataframe, `type`. Since the `Not_vax` and `Fully_vax` columns contain both the percentage and population counts for both unvaccinated and vaccinated, this column was added in to differentiate between the two representative values. Also, since there are both population counts and population percentages, the `NA` values in the `Age` column were filled with the preceding values, which are the respective age thresholds.
+
+```{r tidying part 2}
+raw_vaccination_data$Type <- c("Population", "Percentage", "Population", "Percentage")
+raw_vaccination_data <- raw_vaccination_data %>%
+  fill("Age")
+knitr::kable(raw_vaccination_data)
+```
+
+Note that the row indices of the dataframe start at 2, which we should fix. By setting the `row_names` in the dataframe to `NULL`, the row indices have been reset, starting with 1, and ending at the length of the dataframe. The output below does not show the row indices, but they have been effectively reset to starting at 1. 
+
+```{r tidying part 3}
+row.names(raw_vaccination_data) = NULL
+knitr::kable(raw_vaccination_data)
+```
+
+The variable types in the dataframe are all characters. The following block of code sets the variable types to doubles in order to calculate the total population and Efficacy vs. Disease.
+
+```{r tidying part 4}
+raw_vaccination_data$Not_vax = parse_number(raw_vaccination_data$Not_vax)
+raw_vaccination_data$Fully_vax = parse_number(raw_vaccination_data$Fully_vax)
+raw_vaccination_data$Severe_cases_not = as.numeric(raw_vaccination_data$Severe_cases_not)
+raw_vaccination_data$Severe_cases_fully = as.numeric(raw_vaccination_data$Severe_cases_fully)
+
+glimpse(raw_vaccination_data)
+```
+
+The `pivot_wider` function from the `tidyr` package was then used to seperate the percentages from the population, because these are two different scales/representations of the population, and should therefore be placed in seperate columns. The `type` column was created so that we could create new columns based on the population count and the percentage for each scenario.
+```{r tidying part 5}
+raw_vaccination_data <- raw_vaccination_data %>% pivot_wider(names_from = Type, values_from = c(Not_vax, Fully_vax))
+knitr::kable(raw_vaccination_data)
+```
+
+The `fill` function was then used again in order to get rid of most of the NA values present in the dataframe.
+```{r tidying part 6}
+raw_vaccination_data <- raw_vaccination_data %>%
+  fill(names(raw_vaccination_data), .direction = 'down')
+knitr::kable(raw_vaccination_data)
+```
+
+The only rows we need at this point are the even number rows, since the `fill` function that was used earlier filled the dataframe in a certain way where only the even number rows convey the necessary information we need. The next line parses out just the even number of rows in the dataframe.
+```{r tidying part 7}
+row_even <- seq_len(nrow(raw_vaccination_data)) %% 2
+raw_vaccination_data <- raw_vaccination_data[row_even == 0, ]
+knitr::kable(raw_vaccination_data)
+```
+### Calculating the Total Population
+
+Question 1 asked:
+1. Do you have enough information to calculate the total population? What does this total population represent?
+
+There is enough information from the given spreadsheet to calculate the total population. Since the percentages below the totals for each age bracket do not sum up to 100, this implies that the remainder of the population has either declined to answer their vaccination status or has only one dose of the vaccine, based solely on the data present in this spreadsheet. This total population should represent the entire population of Israel.
+
+The following code chunk below calculates the total population for each age bracket. First, the `mutate` function is used to determine the percentage of the population that is neither not vaccinated or vaccinated. Then, the `mutate` function is used again to determine the total population for each age bracket. The total population is the sum of the values in the `Total_popularion` variable for the dataframe.
+
+```{r calculating the total population}
+raw_vaccination_data <- raw_vaccination_data %>%
+  mutate(Unknown_Percentage = 100 - (Not_vax_Percentage + Fully_vax_Percentage)) %>%
+  mutate(Total_population = (Not_vax_Population + Fully_vax_Population)/(100 - Unknown_Percentage) * 100)
+
+knitr::kable(raw_vaccination_data)
+sum(raw_vaccination_data$Total_population)
+```
+
+The output above reveals that the total population of Israel is 7,155,090. However, the actual total population of Israel, given by the [World Population Review](https://worldpopulationreview.com/countries/israel-population), is 8,821,982. This indicates a discrepancy between the total population of Israel from the spreadsheet data, and the actual total population of Israel. One possibility for this discrepancy is that children 12 and under are ineligible to receive the vaccine in Israel, which would lump this subset of the population with the `<50` group.
+
+[Statista](https://www.statista.com/statistics/526596/age-structure-in-israel/) shows that in 2020, 27.83% of the population is under the age of 14. Assuming that a couple of percentage points are shaved off by omitting 12 - 14 year olds, this indicates that ~22% of the population of Israel is automatically inelligible to take the vaccine. 22% of the total population from the given spreadsheet is 1,574,119, which is in fact a larger number than the population of those not vaccinated under the age of 50 from the spreadsheet (1,116,834), which is another discrepancy.
+
+### Calculating Efficacy vs. Disease
+
+Question 2 asked: 
+
+2. Calculate the Efficacy vs. Disease; Explain your results.
+
+Efficacy vs. disease for each age bracket was computed by computing the percentage of fully vaxed severe cases per 100k. Then the % of not vaxes severe cases per 100k was computed. The percentage of fully vaxed was then divided by the percent of fully vaxed. This value is stored on the dataframe as `percent_fully_vaxed_vs_percent_not_vaxed`. These values were subtracted from 1 in order to give the efficacy vs. severe disease value for each age bracket. These values were stored on the `Efficacy_vs_severe` variable on the dataframe.
+
+
+```{r calculating efficacy vs disease}
+raw_vaccination_data <- raw_vaccination_data %>%
+  mutate(percent_fully_vaxed_vs_percent_not_vaxed = (((Severe_cases_fully * (Fully_vax_Population / 100000)) / Fully_vax_Population) / ((Severe_cases_not * (Not_vax_Population / 100000)) / Not_vax_Population))) %>%
+  mutate(Efficacy_vs_severe = 1 - percent_fully_vaxed_vs_percent_not_vaxed)
+
+
+knitr::kable(raw_vaccination_data)
+```
+The table above reveals that the efficacy rate is high in populations under 50, while the efficacy rate is in the negatives for populations above 50. This implies that the vaccines in populations above 50 are doing the opposite of what its intentions are.
+
+### Comparison of Rates in Unvaccinated Individuals to that in Vaccinated Individuals
+
+Question 3 asked:
+
+3. From your calculation of efficacy vs. disease, are you able to compare the rate of severe cases in unvaccinated individuals to that in vaccinated individuals?
+
+The definition of efficacy vs. severe disease asks to compute the percent of fully vaxes severe cases per 100K and the percent of not vaxed severe cases per 100K and divide the two values, which was stored on the `percent_fully_vaxed_vs_percent_not_vaxed` variable in the dataframe. We could then use the resulting value to compare the rate of severe cases between the two populations. 
+
+### Conclusions
+More knowledge about where the data in the spreadsheet came from is necessary in order to account for the discrepancies that were noted in this report. A future experiment could include other variables that could evaluate the efficacy of the vaccines for not only Israel, but also for other countries. The Efficacy vs. severe disease revealed that populations over 50 are more likely to die when taking the vaccine compared to those who do not take the vaccine. It is possible that there is a discrepancy in how severe cases were counted for the older population, and we should bring up our findings to the agency who gave us this data, in the hopes that they will be able to answer for some of these discrepancies.
+
